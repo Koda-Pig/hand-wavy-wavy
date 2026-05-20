@@ -5,6 +5,9 @@
     "lib": ["ES2023", "DOM"],
     "types": ["vite/client"],
     "skipLibCheck": true,
+    "paths": {
+      "@mediapipe/tasks-vision": ["./node_modules/@mediapipe/tasks-vision/vision.d.ts"]
+    },
 
     /* Bundler mode */
     "moduleResolution": "bundler",

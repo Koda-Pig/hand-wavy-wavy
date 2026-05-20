@@ -1,27 +1,56 @@
 :root {
-    --text: #6b6375;
-    --text-h: #08060d;
-    --bg: #fff;
+    --stage-bg: #0a0a0a;
+    --status: rgba(255, 255, 255, 0.55);
     --sans: system-ui, "Segoe UI", Roboto, sans-serif;
-    font: 18px/145% var(--sans);
-    letter-spacing: 0.18px;
-    color-scheme: light dark;
-    color: var(--text);
-    background: var(--bg);
-    font-synthesis: none;
-    text-rendering: optimizeLegibility;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
 }
 
-@media (prefers-color-scheme: dark) {
-    :root {
-        --text: #9ca3af;
-        --text-h: #f3f4f6;
-        --bg: #16171d;
-    }
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
 }
 
+html,
 body {
     margin: 0;
+    height: 100%;
+    overflow: hidden;
+    background: var(--stage-bg);
+    font-family: var(--sans);
+}
+
+.stage {
+    position: relative;
+    width: 100vw;
+    height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--stage-bg);
+}
+
+#status {
+    position: absolute;
+    z-index: 10;
+    margin: 0;
+    color: var(--status);
+    font-size: 14px;
+    line-height: 1.4;
+    text-align: center;
+    pointer-events: none;
+}
+
+#webcam {
+    position: absolute;
+    visibility: hidden;
+    width: 0;
+    height: 0;
+}
+
+#overlay {
+    position: absolute;
+    max-width: 100vw;
+    max-height: 100vh;
+    width: auto;
+    height: auto;
 }
