@@ -1,13 +1,107 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>hand-wavy-wavy</title>
-  </head>
-  <body>
-    <div id="app"></div>
-    <script type="module" src="/src/main.js"></script>
-  </body>
+    <head>
+        <meta charset="UTF-8" />
+        <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>hand-wavy-wavy</title>
+    </head>
+    <body>
+        <body>
+            <header>
+                <div class="logo"><h1>MediaPipe Hand & Face Tracking</h1></div>
+                <div class="header-right">
+                    <a
+                        href="https://sanderdesnaijer.com/blog/mediapipe-hand-face-tracking"
+                        >Read tutorial</a
+                    >
+                    <a
+                        href="https://github.com/sanderdesnaijer/demos/tree/main/demos/mediapipe-rainbow"
+                        target="_blank"
+                        rel="noopener"
+                        >Source</a
+                    >
+                    <a href="https://demos.sanderdesnaijer.com">All demos</a>
+                    <div class="pill" id="pill">Loading...</div>
+                </div>
+            </header>
+
+            <div class="stage" id="stage">
+                <video id="webcam" autoplay playsinline muted></video>
+                <canvas id="fxCanvas"></canvas>
+                <!-- rainbow trails + stars -->
+                <canvas id="uiCanvas"></canvas>
+                <!-- skeleton overlay, redrawn each frame -->
+                <div class="loading-overlay" id="overlay">
+                    <div class="spinner"></div>
+                    <p id="overlayMsg">Loading MediaPipe…</p>
+                </div>
+            </div>
+
+            <div class="legend">
+                <div class="legend-title">Try these gestures</div>
+                <div class="legend-items">
+                    <div class="legend-item">
+                        <span class="legend-gesture">☝️</span>
+                        <div class="legend-text">
+                            <span class="legend-action">One finger</span>
+                            <span class="legend-effect"
+                                >draws a rainbow trail</span
+                            >
+                        </div>
+                    </div>
+                    <div class="legend-item">
+                        <span class="legend-gesture">✌️</span>
+                        <div class="legend-text">
+                            <span class="legend-action">Peace sign</span>
+                            <span class="legend-effect">bursts stars</span>
+                        </div>
+                    </div>
+                    <div class="legend-item">
+                        <span class="legend-gesture">✋</span>
+                        <div class="legend-text">
+                            <span class="legend-action">Open palm</span>
+                            <span class="legend-effect">pauses drawing</span>
+                        </div>
+                    </div>
+                    <div class="legend-item">
+                        <span class="legend-gesture">😮</span>
+                        <div class="legend-text">
+                            <span class="legend-action">Open mouth</span>
+                            <span class="legend-effect">triggers MAGIC</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <footer class="demo-footer">
+                <a href="https://demos.sanderdesnaijer.com">all demos</a>
+                <span class="footer-sep">·</span>
+                <a
+                    href="https://sanderdesnaijer.com/blog/mediapipe-hand-face-tracking"
+                    >read tutorial</a
+                >
+                <span class="footer-sep">·</span>
+                <a
+                    href="https://github.com/sanderdesnaijer/demos/tree/main/demos/mediapipe-rainbow"
+                    target="_blank"
+                    rel="noopener"
+                    >source</a
+                >
+                <span class="footer-sep">·</span>
+                <a
+                    href="https://sanderdesnaijer.com"
+                    style="display: inline-flex; align-items: center"
+                >
+                    <img
+                        src="../../img/logo-sanderdesnaijer.svg"
+                        alt="Sander de Snaijer logo"
+                        class="site-logo"
+                    />
+                    sanderdesnaijer.com
+                </a>
+            </footer>
+        </body>
+        <script type="module" src="/src/main.js"></script>
+    </body>
 </html>
