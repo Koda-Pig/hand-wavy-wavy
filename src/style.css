@@ -25,51 +25,6 @@ header {
     justify-content: space-between;
 }
 
-.logo h1 {
-    font-size: 1.1rem;
-    font-weight: 600;
-    display: inline;
-}
-
-.header-right {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-}
-
-.header-right a {
-    font-family: "Space Mono", monospace;
-    font-size: 0.7rem;
-    color: #666;
-    text-decoration: none;
-    padding: 5px 14px;
-    border-radius: 999px;
-    border: 1px solid #ddd;
-    transition:
-        color 0.2s,
-        border-color 0.2s;
-}
-
-.header-right a:hover {
-    color: #333;
-    border-color: #aaa;
-}
-
-.pill {
-    font-family: "Space Mono", monospace;
-    font-size: 0.7rem;
-    padding: 5px 14px;
-    border-radius: 999px;
-    border: 1px solid #ddd;
-    color: #999;
-    transition: all 0.3s;
-}
-
-.pill.live {
-    border-color: #34a853;
-    color: #34a853;
-}
-
 .stage {
     position: relative;
     width: 100%;

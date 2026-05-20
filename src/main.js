@@ -14,7 +14,6 @@ const fxCtx = fxCanvas.getContext("2d", {
 const uiCtx = uiCanvas.getContext("2d");
 const overlay = document.getElementById("overlay");
 const overlayMsg = document.getElementById("overlayMsg");
-const pill = document.getElementById("pill");
 
 // ── Rainbow colors ───────────────────────────────────────────────────────────
 const RAINBOW = [
@@ -53,13 +52,6 @@ let isRunning = false;
 let W = 1,
   H = 1;
 
-// ── MAGIC word state ──────────────────────────────────────────────────────────
-// Each "MAGIC" appearance: { x, y, spawnT, alpha, scale }
-const magicWords = [];
-const MAGIC_DURATION = 2200; // ms total lifetime
-const MAGIC_FADEIN = 180; // ms to pop in
-const MAGIC_FADEOUT = 600; // ms to fade out at end
-
 // ── Init ──────────────────────────────────────────────────────────────────────
 async function init() {
   const vision = await FilesetResolver.forVisionTasks(
@@ -95,8 +87,6 @@ async function init() {
       c.height = H;
     });
     overlay.style.display = "none";
-    pill.textContent = "Live";
-    pill.classList.add("live");
     isRunning = true;
     requestAnimationFrame(loop);
   });
@@ -343,59 +333,6 @@ function loop(timestamp) {
 
     const alpha = Math.max(0, 1 - s.age / s.maxAge);
     drawStar(fxCtx, s.x, s.y, s.size, s.rotation, alpha, s.color);
-  }
-
-  // ── Draw MAGIC words ─────────────────────────────────────────────────────────
-  for (let i = magicWords.length - 1; i >= 0; i--) {
-    const m = magicWords[i];
-    const age = now - m.spawnT;
-    if (age > MAGIC_DURATION) {
-      magicWords.splice(i, 1);
-      continue;
-    }
-
-    // Alpha: pop in fast, hold, fade out
-    let alpha;
-    if (age < MAGIC_FADEIN) {
-      alpha = age / MAGIC_FADEIN;
-    } else if (age > MAGIC_DURATION - MAGIC_FADEOUT) {
-      alpha = (MAGIC_DURATION - age) / MAGIC_FADEOUT;
-    } else {
-      alpha = 1;
-    }
-    alpha = Math.max(0, Math.min(1, alpha));
-
-    // Scale: overshoot pop-in then settle
-    const popT = Math.min(1, age / (MAGIC_FADEIN * 1.5));
-    const scale =
-      popT < 0.6
-        ? (popT / 0.6) * 1.18 // overshoot
-        : 1.18 - ((popT - 0.6) / 0.4) * 0.18; // settle to 1.0
-
-    // Float downward away from face
-    const floatY = m.y + (age / MAGIC_DURATION) * H * 0.1;
-
-    fxCtx.save();
-    fxCtx.globalAlpha = alpha;
-    fxCtx.translate(m.x, floatY);
-    fxCtx.scale(scale, scale);
-
-    const fontSize = Math.round(W * 0.13);
-    fxCtx.font = `900 ${fontSize}px Impact, Arial Black, sans-serif`;
-    fxCtx.textAlign = "center";
-    fxCtx.textBaseline = "middle";
-
-    // Thick black outline (Spongebob meme style)
-    fxCtx.lineWidth = fontSize * 0.14;
-    fxCtx.strokeStyle = "#000";
-    fxCtx.lineJoin = "round";
-    fxCtx.strokeText("MAGIC", 0, 0);
-
-    // White fill — exactly like the meme
-    fxCtx.fillStyle = "#ffffff";
-    fxCtx.fillText("MAGIC", 0, 0);
-
-    fxCtx.restore();
   }
 
   requestAnimationFrame(loop);
