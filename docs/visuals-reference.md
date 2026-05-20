@@ -148,19 +148,156 @@ Current render path: `loop.ts` → `drawSkeleton()` in `draw.ts`. v2 adds an eff
 
 Not implemented. Intended direction when effects are requested:
 
-1. **Port one gesture** to TypeScript (e.g. `src/effects/constellation.ts`) using the `step` / `draw` contract.
-2. **Map landmarks to emitters** via existing `mx()` / `my()` in `landmarks.ts` (landmark 8 = index tip is the usual anchor).
-3. **Extend `opts` with input**, e.g. `emitters: { x, y, handIndex }[]` updated each frame from grace-aware hand slots in `loop.ts`.
-4. **Wire the render loop:** after detection, call `effect.step(dt, opts)` then `effect.draw(ctx, opts)` instead of or in addition to `drawSkeleton()`.
-5. **Map hand signals to parameters:** finger spread → `intensity`; tip velocity → `speed`; per-hand colour from `HAND_COLORS`.
+### Phase 1 — Port one gesture
+
+Port one style from `gestures.jsx` to TypeScript (e.g. `src/effects/fibrous.ts`) using the `step` / `draw` contract and shared helpers in `effectBase.ts`.
+
+### Phase 2 — Track the finger and draw like the rainbow demo
+
+**Reference implementation:** [MediaPipe Hand Tracking & Face Detection in JavaScript](https://www.sanderdesnaijer.com/blog/mediapipe-hand-face-tracking) (Step 6 — rainbow trail). Source: [`demos/mediapipe-rainbow/index.html`](https://github.com/sanderdesnaijer/demos/blob/main/demos/mediapipe-rainbow/index.html).
+
+v2 effects should use the **same finger-tracking and draw-loop discipline** as that tutorial — not gesture classification (out of product scope), but the per-hand tip pipeline, grace handling, and “detect once / render every frame” split.
+
+#### Per-hand tip state (camera pixel space)
+
+Key state by **detection slot** (`0` | `1`), not handedness label:
+
+| State | Purpose |
+|-------|---------|
+| `smoothTip[hi]` | Exponentially smoothed index tip `{ x, y }` |
+| `tipTrail[hi]` | Time-stamped path `{ x, y, t }[]` for trail-following effects |
+| `handMissed[hi]` | Consecutive frames without this slot (grace counter) |
+
+Map landmark **8** (index tip) each detection frame:
+
+```typescript
+const rawX = mx(lm[8], camW);
+const rawY = my(lm[8], camH);
+```
+
+`mx` / `my` in `landmarks.ts` already mirror X the same way as the blog (`MIRROR_X = true`).
+
+#### Exponential smoothing (before recording or drawing)
+
+Raw landmarks jitter. Blend toward the previous smoothed position **before** appending trail points or passing coords to an effect:
+
+```typescript
+const SMOOTH = 0.55; // 0 = raw, 1 = frozen; blog default ~0.5
+
+smoothTip[hi] ??= { x: rawX, y: rawY };
+smoothTip[hi].x = smoothTip[hi].x * SMOOTH + rawX * (1 - SMOOTH);
+smoothTip[hi].y = smoothTip[hi].y * SMOOTH + rawY * (1 - SMOOTH);
+const tipX = smoothTip[hi].x;
+const tipY = smoothTip[hi].y;
+```
+
+Tune `SMOOTH` down (~`0.3`) if the column/trail feels laggy; up (~`0.7`) if it shimmers.
+
+#### Trail point recording (rainbow rules)
+
+When a hand slot is present (after grace), append the **smoothed** tip to `tipTrail[hi]` using the blog’s distance filters:
+
+```typescript
+const TELEPORT_DIST = 180;  // px — hand reappeared far away → start fresh
+const MIN_POINT_DIST = 2;   // px — skip overdense points when moving slowly
+const TRAIL_LIFETIME = 2200; // ms — expire old points (or rely on canvas fade)
+
+const trail = tipTrail[hi];
+const last = trail[trail.length - 1];
+const dist = last ? Math.hypot(tipX - last.x, tipY - last.y) : 0;
+
+if (!last || dist > TELEPORT_DIST) {
+  tipTrail[hi] = [{ x: tipX, y: tipY, t: now }];
+} else if (dist >= MIN_POINT_DIST) {
+  trail.push({ x: tipX, y: tipY, t: now });
+}
+```
+
+Unlike the blog, **do not gate recording on a `draw` gesture** — record whenever the slot is active. Product intent is continuous fingertip drive, not peace-sign / draw FSM.
+
+#### Grace period (align with v1)
+
+Reuse `GRACE_FRAMES = 6` from `landmarks.ts` (~200 ms at 30 fps):
+
+- Reset `handMissed[hi] = 0` when slot `hi` appears in results.
+- On miss, increment `handMissed[hi]`; only clear `smoothTip[hi]` and `tipTrail[hi]` after `handMissed[hi] > GRACE_FRAMES`.
+- v1 already grace-holds **landmarks** in `loop.ts`; Phase 2 extends the same pattern to **tip smoothing and effect history** so a single dropped frame does not wipe the trail.
+
+#### Render loop split (critical)
+
+Match the blog’s two-speed loop:
+
+```mermaid
+flowchart TB
+  RAF[rAF tick]
+  DET{timestamp !== lastTimestamp?}
+  MP[detectForVideo + update tip/trail]
+  EXP[expire old trail points]
+  FADE[effect partial fade]
+  STEP[effect.step dt]
+  DRAW[effect.draw ctx]
+  SKEL[optional skeleton]
+
+  RAF --> DET
+  DET -->|yes| MP
+  DET --> EXP
+  MP --> EXP
+  EXP --> FADE --> STEP --> DRAW --> SKEL
+```
+
+| When | What runs |
+|------|-----------|
+| **New video frame only** | `detectForVideo`, grace update, smooth tip, append trail points |
+| **Every rAF frame** | Expire aged points, `fade` + `step(dt)` + `draw(ctx)`, optional skeleton |
+
+Effects must animate and fade **between** detections — same reason the rainbow stars fall and trail segments lose alpha even when `detectForVideo` skips a tick.
+
+#### Drawing the effect (rainbow pattern → v2 visuals)
+
+The blog draws on a **persistent** effects canvas: clear, redraw all trail segments with age-based alpha, Catmull-Rom splines offset perpendicular to path tangent for each colour band.
+
+Adapt that pattern for `visuals/` aesthetics on the single overlay canvas:
+
+1. **Persistence:** `effectBase.fade()` — semi-transparent black fill each frame (same role as the blog’s `fxCanvas` clear + age fade).
+2. **Path effects** (constellation, dendrite, wisps): consume `tipTrail[hi]`; draw smooth segments with alpha from point age (`1 - age / TRAIL_LIFETIME`), optionally spline-interpolated between recorded tips.
+3. **Column / field effects** (Fibrous): consume current `smoothTip[hi].x` (and optionally `y`) each frame — no spline, but still use smoothed coords and grace so the column does not jitter or vanish on one miss.
+4. **Per-hand colour:** map slot → `HAND_COLORS` / `HAND_RGB` (blog uses a fixed 7-band rainbow palette per trail).
+
+Full spline + normal-offset rendering from the blog lives in [building-hand-gesture-tracking.md §7.2](./building-hand-gesture-tracking.md#72-rainbow-trail-system) for reference; port only if an effect needs arc-shaped multi-band trails.
+
+#### Phase 2 wiring in `loop.ts`
+
+```typescript
+// Inside timestamp guard — per present hand slot hi:
+updateSmoothedTip(hi, lm, camW, camH, now);
+appendTrailPoint(hi, now);
+
+// Every frame — per hand slot with active or grace-held state:
+expireTrailPoints(hi, now);
+effect.fade(ctx);
+effect.step(dt, { tip: smoothTip[hi], trail: tipTrail[hi], ...params });
+effect.draw(ctx, { tip: smoothTip[hi], trail: tipTrail[hi], ...params });
+```
+
+### Phase 3 — Extend `opts` with input
+
+Pass per-hand `{ tip, trail, handIndex }` into `step` / `draw` each frame (from grace-aware slots in `loop.ts`), plus scaled defaults from `defaultEffectParams()`.
+
+### Phase 4 — Wire the render loop
+
+After Phase 2, render order each frame: partial fade → effect `step` / `draw` per hand → optional skeleton (`S` key).
+
+### Phase 5 — Map motion to parameters (optional)
+
+Finger spread → `intensity`; tip velocity from `tipTrail` → `speed`; per-hand tint from `HAND_COLORS`.
 
 ```mermaid
 flowchart LR
   CAM[getUserMedia] --> VID[hidden video]
   VID --> MP[HandLandmarker]
   MP --> LOOP[rAF loop]
-  LOOP --> MAP[landmarks → emitters]
-  MAP --> FX[effect.step / draw]
+  LOOP --> TIP[smooth tip + trail history]
+  TIP --> FX[effect fade / step / draw]
   FX --> CAN[overlay canvas]
 ```
 
@@ -190,5 +327,6 @@ flowchart LR
 
 ## Related docs
 
-- [implementation-plan.md](./implementation-plan.md) — v1 scope; "Later" features this reference targets
-- [building-hand-gesture-tracking.md](./building-hand-gesture-tracking.md) — earlier gesture/effect architecture (trails, particles, dual canvas)
+- [implementation-plan.md](./implementation-plan.md) — v1 scope; v2 Fibrous target
+- [building-hand-gesture-tracking.md](./building-hand-gesture-tracking.md) — rainbow trail, smoothing, grace, dual-canvas patterns (§7–§9); canonical finger-tracking detail for Phase 2
+- [MediaPipe rainbow demo tutorial](https://www.sanderdesnaijer.com/blog/mediapipe-hand-face-tracking) — live reference for tip smoothing, trail recording, and draw-loop split
