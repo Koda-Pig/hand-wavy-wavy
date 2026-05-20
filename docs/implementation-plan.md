@@ -1,10 +1,10 @@
-# Implementation plan: minimal hand skeleton tracker
+# Implementation plan: hand-wavy-wavy
 
-This plan reflects decisions from the design review for rebuilding [hand-wavy-wavy](https://hand-wavy-wavy.netlify.app/) after the repo reset. It supersedes gesture/effect-heavy scope in [building-hand-gesture-tracking.md](./building-hand-gesture-tracking.md) for **v1**.
+Living product doc for [hand-wavy-wavy](https://hand-wavy-wavy.netlify.app/). Supersedes the v1-only skeleton scope and the gesture/effect-heavy scope in [building-hand-gesture-tracking.md](./building-hand-gesture-tracking.md).
 
-**v1 goal:** Track up to two hands in the browser, draw 21 landmarks per hand with connecting lines on a canvas. No gesture classification, trails, or particles.
+**Product intent:** Real-time finger tracking drives canvas visualizations. No gesture classification. The hand is an input device; effects are ethereal, bio-luminescent streams (aesthetic references in [`visuals/`](../visuals/) — reference only, not shipped).
 
-**Success criteria:** Stable skeleton overlay on a dark stage; two distinguishable hand colors; brief dropout does not flicker; works on `pnpm dev` (HTTPS/localhost) and production deploy.
+**Current phase:** v1 complete → v2 in progress (Fibrous effect first).
 
 ---
 
@@ -12,19 +12,25 @@ This plan reflects decisions from the design review for rebuilding [hand-wavy-wa
 
 | Topic | Choice |
 |--------|--------|
-| **Features** | Hand + finger tracking only; 21 landmarks; bone lines; uniform joint dots |
-| **Not in v1** | Gestures, rainbow trails, star particles, video visibility toggle, position smoothing |
-| **MediaPipe** | npm `@mediapipe/tasks-vision@0.10.3`; `delegate: "GPU"` with CPU fallback on init failure |
-| **Hands** | `numHands: 2`; draw both when present; per-hand colors |
-| **Dropout** | Grace period ~6 frames before clearing per-hand state |
-| **Video** | Hidden `<video>` required for `detectForVideo`; skeleton-only UI; visible mirrored video in a later pass |
-| **Canvas** | Single overlay; `width/height` = `video.videoWidth/Height`; CSS scales stage to viewport |
-| **Coordinates** | `MIRROR_X = true` by default (`mx = (1 - x) * width`); constant in `landmarks.ts` for future toggle |
+| **Input** | Index fingertip (landmark `8`) per hand — primary effect driver |
+| **Skeleton** | Full 21-landmark tracking + draw logic **retained**; hidden by default |
+| **Skeleton toggle** | `S` key at runtime (no on-screen UI) |
+| **Effects** | Canvas visualizations influenced by fingertip position; no gesture labels |
+| **v2 first effect** | **Fibrous** — swaying fiber column follows fingertip X |
+| **Two hands** | Up to two columns (one per hand), colors from `HAND_COLORS` |
+| **Effect params** | Port defaults from `visuals/` explorations, **scale-aware** for full viewport |
+| **Effect code layout** | `src/effects/effectBase.ts` + `src/effects/fibrous.ts`; wired from `loop.ts` |
+| **Not in scope** | Gesture classification, rainbow-trail/peace-sign FSM, visible video toggle (unless requested) |
+| **MediaPipe** | npm `@mediapipe/tasks-vision@0.10.3`; `delegate: "GPU"` with CPU fallback |
+| **Hands** | `numHands: 2`; grace period ~6 frames before clearing per-hand state |
+| **Video** | Hidden `<video>` for `detectForVideo`; skeleton/effects-only UI |
+| **Canvas** | Viewport-sized overlay via `canvasLayout.ts`; cover-fit transform; internal coords match camera space |
+| **Coordinates** | `MIRROR_X = true` (`mx = (1 - x) * width`) in `landmarks.ts` |
 | **Camera** | `getUserMedia({ video: { width: 640, height: 480, facingMode: "user" } })` |
-| **Stage** | Near-black background (`#0a0a0a` or similar) |
+| **Stage** | Near-black background (`#0a0a0a`) |
 | **Status UI** | Minimal centered text: loading, permission, errors |
 | **Debug** | `SHOW_DEBUG = false`; when true, draw MediaPipe handedness labels near wrist |
-| **File layout** | Hybrid 4 files (see below) |
+| **Stack** | TypeScript + Vite; **pnpm**; no backend |
 
 ---
 
@@ -35,15 +41,21 @@ flowchart LR
   CAM[getUserMedia] --> VID[hidden video]
   VID --> MP[HandLandmarker]
   MP --> LOOP[rAF loop]
-  LOOP --> DRAW[single canvas]
+  LOOP --> STATE[grace + landmarks]
+  STATE --> TIP[index tip per hand]
+  TIP --> FX[effect step/draw]
+  FX --> CANVAS[overlay canvas]
+  STATE -.->|S key| SKEL[optional skeleton draw]
+  SKEL -.-> CANVAS
 ```
 
 | Layer | Responsibility |
 |-------|----------------|
 | **Capture** | `getUserMedia()` → hidden `<video>` at 640×480 |
 | **Detection** | MediaPipe returns 21 normalized landmarks per hand |
-| **State** | Per-hand grace counters when landmarks missing |
-| **Render** | Clear canvas → draw connections + dots (per-hand color) |
+| **State** | Per-hand grace counters; full skeleton kept for future use |
+| **Effect input** | Landmark `8` (index tip) per hand, mapped via `mx`/`my` |
+| **Render** | Effect fade + draw; optionally skeleton overlay when toggled |
 
 Everything runs locally. No backend.
 
@@ -53,15 +65,63 @@ Everything runs locally. No backend.
 
 ```
 src/
-  main.ts          # DOM, status text, init MediaPipe + camera, start loop
-  loop.ts          # requestAnimationFrame, timestamp dedup, detect, grace, call draw
-  draw.ts          # clear canvas, draw skeleton per hand
-  landmarks.ts     # CONNECTIONS, mx/my, MIRROR_X, per-hand colors, SHOW_DEBUG
-index.html         # stage, hidden video, single canvas, status element
-src/style.css      # dark stage, stacked video + canvas, native-size canvas scaled by CSS
+  main.ts           # DOM, status, MediaPipe + camera init, keyboard (S → skeleton)
+  loop.ts           # rAF, detect, grace, effect step/draw, optional skeleton
+  draw.ts           # skeleton connections + dots (used when skeleton visible)
+  landmarks.ts      # CONNECTIONS, mx/my, MIRROR_X, HAND_COLORS, flags
+  canvasLayout.ts   # viewport canvas sizing, DPR, cover-fit transform
+  effects/
+    effectBase.ts   # fade, rgba, shared helpers for all effects
+    fibrous.ts      # Fibrous effect (v2 first ship)
+index.html          # stage, hidden video, overlay canvas, status
+src/style.css       # dark full-viewport stage
+visuals/            # motion explorations (reference only; not in build)
 ```
 
-MediaPipe init lives in `main.ts` or a small inline block there (~30 lines). Extract `handLandmarker.ts` only if `main.ts` grows unwieldy.
+MediaPipe init lives in `main.ts`. WASM loads from `public/mediapipe-wasm/` (copied by Vite plugin on dev/build), with jsDelivr CDN fallback.
+
+---
+
+## v1 (complete)
+
+Minimal hand skeleton tracker — foundation for detection and coordinate mapping.
+
+- [x] Dark stage, hidden video, overlay canvas
+- [x] MediaPipe Hand Landmarker, GPU → CPU fallback
+- [x] Two hands, per-hand colors, 6-frame grace period
+- [x] `canvasLayout.ts` viewport scaling (not native-size canvas + CSS only)
+- [x] Status flow: `Loading…` → `Starting camera…` → `Loading hand tracker…` → `Ready` (hidden)
+
+---
+
+## v2 — Fibrous (target)
+
+Port **06 · Fibrous** from [`visuals/gestures.jsx`](../visuals/gestures.jsx).
+
+### Behavior
+
+- Reference implementation: vertical sine-sway fibers at fixed `x0` columns across the canvas.
+- **Product change:** each detected hand gets one fiber **column centered on index tip X** (column follow).
+- Fiber count scales with canvas/camera width (reference: `n ≈ width / 3.5`).
+- Default appearance derived from explorations tweaks, adjusted for full viewport:
+
+| Param | Reference (`visuals/`) | v2 note |
+|-------|------------------------|---------|
+| speed | `3` | keep ratio; may tune |
+| opacity | `0.72` | keep |
+| trail (fade) | `0.23` | scale fade for viewport |
+| glow | `20` | bump slightly for full-screen |
+| color | `#ffffff` | default; per-hand tint optional later |
+
+### Render order (each frame)
+
+1. Partial fade (effect persistence)
+2. `fibrous.step(dt)` / `fibrous.draw(ctx)` per hand at tip position
+3. If skeleton toggled (`S`): draw skeleton on top
+
+### Loop contract
+
+Detection unchanged from v1. Effect `step`/`draw` run every frame; `detectForVideo` only when `timestamp !== lastTimestamp`.
 
 ---
 
@@ -71,13 +131,11 @@ MediaPipe init lives in `main.ts` or a small inline block there (~30 lines). Ext
 pnpm add @mediapipe/tasks-vision@0.10.3
 ```
 
-Model asset (unchanged from architecture doc):
+Model asset:
 
 ```
 https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task
 ```
-
-WASM: resolve via `FilesetResolver.forVisionTasks` using paths from the installed package (fall back to jsDelivr WASM URL only if bundler path fails).
 
 Hand landmarker options:
 
@@ -104,148 +162,57 @@ Hand landmarker options:
 </div>
 ```
 
-- Video is `hidden` (or off-screen) in v1 — still drives canvas dimensions and detection.
-- When visible video is added later: remove `hidden`, apply `transform: scaleX(-1)` on video, keep `MIRROR_X` aligned.
-
 ---
 
-## Render loop contract
+## Constants
 
-```typescript
-function loop(timestamp: number) {
-  if (timestamp !== lastTimestamp) {
-    lastTimestamp = timestamp;
-    const results = handLandmarker.detectForVideo(video, timestamp);
-    updateGraceState(results); // handMissed[0|1], clear after GRACE_FRAMES
-    lastResults = results;     // keep for draw during grace
-  }
-  drawSkeleton(overlayCtx, lastResults, video.videoWidth, video.videoHeight);
-  requestAnimationFrame(loop);
-}
-```
-
-- **Detect** inside `timestamp !== lastTimestamp` guard (one inference per video frame).
-- **Draw** every frame (grace may show last known landmarks).
-
-Constants:
-
-| Constant | Value |
-|----------|-------|
-| `GRACE_FRAMES` | 6 |
-| `MIRROR_X` | `true` (default) |
-| `SHOW_DEBUG` | `false` (default) |
-
----
-
-## Drawing
-
-### Connections
-
-Use the standard MediaPipe hand graph (see [building-hand-gesture-tracking.md §2.4](./building-hand-gesture-tracking.md)):
-
-```typescript
-const CONNECTIONS = [
-  [0, 1], [1, 2], [2, 3], [3, 4],
-  [0, 5], [5, 6], [6, 7], [7, 8],
-  [5, 9], [9, 10], [10, 11], [11, 12],
-  [9, 13], [13, 14], [14, 15], [15, 16],
-  [13, 17], [17, 18], [18, 19], [19, 20],
-  [0, 17],
-];
-```
-
-### Coordinate helpers (`landmarks.ts`)
-
-```typescript
-export const MIRROR_X = true;
-
-export function mx(p: { x: number }, width: number): number {
-  return (MIRROR_X ? 1 - p.x : p.x) * width;
-}
-export function my(p: { y: number }, height: number): number {
-  return p.y * height;
-}
-```
-
-### Per-hand colors
-
-- Hand 0: e.g. `rgba(199, 125, 255, 0.7)` (purple)
-- Hand 1: e.g. `rgba(125, 200, 255, 0.7)` (cyan)
-
-Uniform styling: same line width (~1.5px) and dot radius (~4px) for all landmarks.
-
-### Debug labels
-
-When `SHOW_DEBUG` is true, draw `handedness` text near landmark 0 (wrist) using that hand’s color.
-
----
-
-## Implementation phases
-
-### Phase 1 — Stage, camera, status
-
-1. Update `index.html` and `style.css`: dark full-viewport stage, centered status, hidden video, single canvas absolutely positioned over video.
-2. On `video.loadeddata`, set `canvas.width/height` from `video.videoWidth/Height`.
-3. `getUserMedia` with 640×480 user-facing camera; pipe to video.
-4. Status transitions: `Loading…` → `Starting camera…` → `Ready` (hide or clear when drawing).
-
-**Verify:** Status updates; no blank hang; camera denial shows readable error.
-
-### Phase 2 — MediaPipe + loop
-
-1. Install `@mediapipe/tasks-vision`; create hand landmarker (GPU, CPU fallback).
-2. Implement `loop.ts` with timestamp deduplication.
-3. Temporary: log index tip (landmark 8) per hand to console; remove before Phase 3.
-
-**Verify:** Console shows stable normalized coordinates when moving hands.
-
-### Phase 3 — Skeleton render
-
-1. `landmarks.ts`: `CONNECTIONS`, `mx`/`my`, colors, flags.
-2. `draw.ts`: stroke connections, fill uniform dots per landmark.
-3. `loop.ts`: grace-period state — retain last landmarks for up to 6 missed frames per hand index.
-
-**Verify:** Two hands get distinct colors; skeleton tracks movement; brief occlusion does not blink off instantly.
-
-### Phase 4 — Polish
-
-1. Remove debug logging.
-2. Confirm GPU/CPU fallback path.
-3. If landmark shimmer is distracting, add optional smoothing (tips only) — not required for v1.
-4. `pnpm build` + deploy smoke test (camera requires HTTPS).
-
-**Verify:** Chrome Performance — `detectForVideo` acceptable at 640×480 with 2 hands.
+| Constant | Value | Location |
+|----------|-------|----------|
+| `GRACE_FRAMES` | 6 | `landmarks.ts` |
+| `MIRROR_X` | `true` | `landmarks.ts` |
+| `SHOW_DEBUG` | `false` | `landmarks.ts` |
+| Skeleton visible | `false` default; `S` toggles | runtime in `main.ts` / `loop.ts` |
 
 ---
 
 ## Manual test checklist
 
+### v1 / detection (still applies)
+
 - [ ] Camera permission denied → status error, no crash
-- [ ] One hand → skeleton appears, correct color
-- [ ] Two hands → two colors, no index swap flicker
-- [ ] Hand leaves frame → skeleton clears after ~200ms grace, not instantly on one-frame miss
-- [ ] `MIRROR_X = true` → moving hand left moves skeleton left on screen
+- [ ] One hand → tracking works
+- [ ] Two hands → two slots, no index swap flicker
+- [ ] Hand leaves frame → state clears after ~6 frame grace
+- [ ] `MIRROR_X = true` → moving hand left moves overlay left
 - [ ] `SHOW_DEBUG = true` → handedness labels visible
-- [ ] Window resize → CSS scale OK; canvas internal size still matches video
+- [ ] Window resize → cover-fit scale OK
+
+### v2 / Fibrous (when implemented)
+
+- [ ] Default view: fibers only, no skeleton
+- [ ] `S` toggles skeleton overlay on/off
+- [ ] One hand → one fiber column follows index tip X
+- [ ] Two hands → two columns, distinct colors
+- [ ] Hand dropout → column fades with grace (no instant pop)
+- [ ] Full viewport: glow/trail readable (scale-aware defaults)
 
 ---
 
-## Later (explicitly out of v1)
-
-From [building-hand-gesture-tracking.md](./building-hand-gesture-tracking.md), when needed:
+## Later (not committed)
 
 | Feature | Notes |
 |---------|--------|
+| More effects | Port from `visuals/` registry; key/picker cycle |
+| Per-hand effect types | Different visualization per hand index |
+| Full skeleton as input | Joints beyond tip drive emitters/fields |
 | Visible mirrored video | Remove `hidden`, CSS `scaleX(-1)`, keep `MIRROR_X` |
-| Video toggle | Key or button; detection keeps running |
-| Position smoothing | Exponential smooth on tips if jitter bad |
-| Gestures + effects | `classify()`, trails, particles, dual canvas |
-| Pinch / swipe / FSM | §6 extensions |
+| Position smoothing | If tip jitter distracts |
+| Gesture classification | Explicitly out of scope unless requested |
 
 ---
 
-## Reference
+## Reference docs
 
-- [building-hand-gesture-tracking.md](./building-hand-gesture-tracking.md) — full gesture/effect architecture (future)
+- [building-hand-gesture-tracking.md](./building-hand-gesture-tracking.md) — **historical / future reference** for gesture labels, dual-canvas effects, trails, particles (old demo architecture; not current product)
 - [MediaPipe Hand Landmarker](https://developers.google.com/mediapipe/solutions/vision/hand_landmarker)
-- Landmark indices: wrist `0`, tips `4, 8, 12, 16, 20`
+- Landmark indices: wrist `0`, index tip `8`, other tips `4, 12, 16, 20`

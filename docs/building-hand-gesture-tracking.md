@@ -1,6 +1,12 @@
 # Building Hand Gesture Tracking in the Browser
 
-A practical guide to architecting real-time hand tracking, gesture classification, and canvas-based visual effects using [MediaPipe Hand Landmarker](https://developers.google.com/mediapipe/solutions/vision/hand_landmarker). This document explains the patterns behind projects like [hand-wavy-wavy](https://hand-wavy-wavy.netlify.app/) — a webcam app where one finger draws rainbow trails, a peace sign bursts star particles, and an open palm pauses drawing.
+> **Status:** Historical / reference doc. **Not the current product spec.**
+>
+> [hand-wavy-wavy](https://hand-wavy-wavy.netlify.app/) today is a **fingertip-driven canvas visualization** app (no gesture classification). See [`implementation-plan.md`](./implementation-plan.md) for current intent.
+>
+> This guide describes an **older gesture + effects architecture** (rainbow trails, peace-sign burst, dual canvas) and reusable MediaPipe patterns. Useful for landmark indices, loop structure, and future effect work — but statements like “In hand-wavy-wavy:” below refer to that **legacy demo**, not the shipped codebase.
+
+A practical guide to architecting real-time hand tracking, gesture classification, and canvas-based visual effects using [MediaPipe Hand Landmarker](https://developers.google.com/mediapipe/solutions/vision/hand_landmarker).
 
 **Audience:** experienced developers who want architecture and working code, not a from-zero JavaScript primer.
 
