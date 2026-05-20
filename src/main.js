@@ -2,7 +2,6 @@ import "./style.css";
 import {
   FilesetResolver,
   HandLandmarker,
-  FaceLandmarker,
 } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3";
 
 // ── DOM ──────────────────────────────────────────────────────────────────────
@@ -49,7 +48,6 @@ const MAX_STARS = 80; // hard cap — never let the particle pool explode
 
 // ── State ────────────────────────────────────────────────────────────────────
 let handLandmarker = null;
-let faceLandmarker = null;
 let lastTimestamp = -1;
 let isRunning = false;
 let W = 1,
@@ -61,24 +59,12 @@ const magicWords = [];
 const MAGIC_DURATION = 2200; // ms total lifetime
 const MAGIC_FADEIN = 180; // ms to pop in
 const MAGIC_FADEOUT = 600; // ms to fade out at end
-const MOUTH_OPEN_THRESHOLD = 0.045; // ratio of mouth height to face height
-let mouthWasOpen = false;
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 async function init() {
   const vision = await FilesetResolver.forVisionTasks(
     "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm",
   );
-  faceLandmarker = await FaceLandmarker.createFromOptions(vision, {
-    baseOptions: {
-      modelAssetPath:
-        "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
-      delegate: "GPU",
-    },
-    runningMode: "VIDEO",
-    numFaces: 1,
-    outputFaceBlendshapes: false,
-  });
 
   handLandmarker = await HandLandmarker.createFromOptions(vision, {
     baseOptions: {
@@ -174,200 +160,6 @@ function drawStar(ctx, cx, cy, r, rotation, alpha, color) {
   ctx.restore();
 }
 
-// ── Spongebob face overlay ────────────────────────────────────────────────────
-function drawSpongeFace(fl, fx, fy, isOpen) {
-  if (!isOpen) return; // only show when mouth is open
-
-  const eyes = [
-    {
-      inner: 133,
-      outer: 33,
-      topLid: [156, 157, 158, 159, 160, 161],
-    },
-    {
-      inner: 362,
-      outer: 263,
-      topLid: [383, 384, 385, 386, 387, 388],
-    },
-  ];
-
-  eyes.forEach((eye) => {
-    const innerX = fx(fl[eye.inner]),
-      innerY = fy(fl[eye.inner]);
-    const outerX = fx(fl[eye.outer]),
-      outerY = fy(fl[eye.outer]);
-
-    const cx = (innerX + outerX) / 2;
-    // Raise the eye centre upward so the big goggle sits over the brow
-    const cy = (innerY + outerY) / 2 - Math.abs(outerX - innerX) * 0.55;
-
-    // Goggle radius: 2.4x the natural eye half-width
-    const rx = Math.abs(outerX - innerX) * 1.2;
-    const ry = rx; // perfectly round goggle
-
-    // ── Outer goggle ring (thick black border) ──
-    uiCtx.save();
-    uiCtx.beginPath();
-    uiCtx.arc(cx, cy, rx + rx * 0.22, 0, Math.PI * 2);
-    uiCtx.fillStyle = "#111";
-    uiCtx.shadowColor = "rgba(0,0,0,0.5)";
-    uiCtx.shadowBlur = 10;
-    uiCtx.fill();
-    uiCtx.restore();
-
-    // ── White sclera ──
-    uiCtx.save();
-    uiCtx.beginPath();
-    uiCtx.arc(cx, cy, rx, 0, Math.PI * 2);
-    uiCtx.fillStyle = "#ffffff";
-    uiCtx.fill();
-    uiCtx.restore();
-
-    // ── Blue iris ──
-    const irisR = rx * 0.62;
-    uiCtx.save();
-    uiCtx.beginPath();
-    uiCtx.arc(cx, cy + rx * 0.06, irisR, 0, Math.PI * 2);
-    const irisGrad = uiCtx.createRadialGradient(cx, cy, 0, cx, cy, irisR);
-    irisGrad.addColorStop(0, "#a8dff7");
-    irisGrad.addColorStop(0.5, "#3aa8d8");
-    irisGrad.addColorStop(1, "#1a6a99");
-    uiCtx.fillStyle = irisGrad;
-    uiCtx.fill();
-    uiCtx.restore();
-
-    // ── Black pupil ──
-    const pupilR = irisR * 0.48;
-    uiCtx.save();
-    uiCtx.beginPath();
-    uiCtx.arc(cx, cy + rx * 0.06, pupilR, 0, Math.PI * 2);
-    uiCtx.fillStyle = "#111";
-    uiCtx.fill();
-    uiCtx.restore();
-
-    // ── Glint ──
-    uiCtx.save();
-    uiCtx.beginPath();
-    uiCtx.arc(
-      cx - pupilR * 0.4,
-      cy - pupilR * 0.3 + rx * 0.06,
-      pupilR * 0.3,
-      0,
-      Math.PI * 2,
-    );
-    uiCtx.fillStyle = "rgba(255,255,255,0.95)";
-    uiCtx.fill();
-    uiCtx.restore();
-
-    // ── Eyelashes along the top of the goggle ring ──
-    const lashCount = 8;
-    const lashLen = rx * 0.55;
-    for (let li = 0; li < lashCount; li++) {
-      // Spread lashes across the top 160 degrees of the circle
-      const angle =
-        Math.PI + Math.PI * 0.1 + (li / (lashCount - 1)) * (Math.PI * 0.8);
-      const baseR = rx + rx * 0.22; // start at the outer goggle ring edge
-      const bx = cx + Math.cos(angle) * baseR;
-      const by = cy + Math.sin(angle) * baseR;
-
-      // Normal points outward from centre
-      const nx = Math.cos(angle);
-      const ny = Math.sin(angle);
-
-      // Lashes longer in the middle of the arc
-      const t = li / (lashCount - 1);
-      const lenFactor = 0.55 + 0.75 * Math.sin(t * Math.PI);
-      const tipX = bx + nx * lashLen * lenFactor;
-      const tipY = by + ny * lashLen * lenFactor;
-
-      // Slight curve alternating left/right
-      const curvePush = (li % 2 === 0 ? -1 : 1) * rx * 0.12;
-      const perp = { x: -ny, y: nx };
-      const cpX = bx + nx * lashLen * lenFactor * 0.5 + perp.x * curvePush;
-      const cpY = by + ny * lashLen * lenFactor * 0.5 + perp.y * curvePush;
-
-      uiCtx.save();
-      uiCtx.beginPath();
-      uiCtx.moveTo(bx, by);
-      uiCtx.quadraticCurveTo(cpX, cpY, tipX, tipY);
-      uiCtx.strokeStyle = "#111";
-      uiCtx.lineWidth = rx * 0.13;
-      uiCtx.lineCap = "round";
-      uiCtx.stroke();
-      uiCtx.restore();
-    }
-  });
-
-  // ── Two BIG front teeth ──
-  const lipTopX = fx(fl[0]);
-  const lipTopY = fy(fl[0]);
-  const lipLeft = fx(fl[61]);
-  const lipRight = fx(fl[291]);
-  const mouthW = Math.abs(lipRight - lipLeft);
-
-  // 6x bigger than natural: teeth are now 1.56x the full mouth width each
-  const toothW = mouthW * 1.04; // 2/3 of original 1.56
-  const toothH = mouthW * 1.12; // 2/3 of original 1.68
-  const gap = mouthW * 0.05;
-  const radius = toothW * 0.12;
-
-  // Left tooth slightly bigger for that wonky Spongebob asymmetry
-  const tooth1W = toothW * 1.18;
-  const tooth1H = toothH * 1.14;
-  const tooth2W = toothW;
-  const tooth2H = toothH;
-
-  const t1x = lipTopX - gap / 2 - tooth1W;
-  const t2x = lipTopX + gap / 2;
-  const ty = lipTopY;
-
-  [
-    [t1x, tooth1W, tooth1H],
-    [t2x, tooth2W, tooth2H],
-  ].forEach(([tx, tW, tH]) => {
-    const toothW = tW,
-      toothH = tH;
-    uiCtx.save();
-    uiCtx.shadowColor = "rgba(0,0,0,0.35)";
-    uiCtx.shadowBlur = 14;
-
-    // Rounded top, flat/open bottom
-    uiCtx.beginPath();
-    uiCtx.moveTo(tx + radius, ty);
-    uiCtx.lineTo(tx + toothW - radius, ty);
-    uiCtx.quadraticCurveTo(tx + toothW, ty, tx + toothW, ty + radius);
-    uiCtx.lineTo(tx + toothW, ty + toothH);
-    uiCtx.lineTo(tx, ty + toothH);
-    uiCtx.lineTo(tx, ty + radius);
-    uiCtx.quadraticCurveTo(tx, ty, tx + radius, ty);
-    uiCtx.closePath();
-
-    const tGrad = uiCtx.createLinearGradient(tx, ty, tx, ty + toothH);
-    tGrad.addColorStop(0, "#fffff5");
-    tGrad.addColorStop(0.6, "#f5eedc");
-    tGrad.addColorStop(1, "#e0d8c0");
-    uiCtx.fillStyle = tGrad;
-    uiCtx.fill();
-
-    uiCtx.strokeStyle = "#aaa";
-    uiCtx.lineWidth = toothW * 0.04;
-    uiCtx.lineJoin = "round";
-    uiCtx.stroke();
-    uiCtx.restore();
-
-    // Shine
-    uiCtx.save();
-    uiCtx.beginPath();
-    uiCtx.moveTo(tx + toothW * 0.25, ty + toothH * 0.06);
-    uiCtx.lineTo(tx + toothW * 0.25, ty + toothH * 0.6);
-    uiCtx.strokeStyle = "rgba(255,255,255,0.55)";
-    uiCtx.lineWidth = toothW * 0.09;
-    uiCtx.lineCap = "round";
-    uiCtx.stroke();
-    uiCtx.restore();
-  });
-}
-
 // ── Main loop ─────────────────────────────────────────────────────────────────
 function loop(timestamp) {
   if (!isRunning) return;
@@ -454,90 +246,6 @@ function loop(timestamp) {
           smoothTip[hi] = null;
         }
       });
-    }
-  }
-
-  // ── Detect face + mouth ──────────────────────────────────────────────────────
-  if (faceLandmarker) {
-    const faceResults = faceLandmarker.detectForVideo(video, timestamp);
-    if (faceResults.faceLandmarks?.length > 0) {
-      const fl = faceResults.faceLandmarks[0];
-      // Mirror x the same way as hands
-      const fx = (p) => (1 - p.x) * W;
-      const fy = (p) => p.y * H;
-
-      // Mouth open: compare upper lip (13) to lower lip (14)
-      // and face height: nose tip (1) to chin (152)
-      const upperLip = fl[13];
-      const lowerLip = fl[14];
-      const noseTip = fl[1];
-      const chin = fl[152];
-      const faceH = Math.abs(chin.y - noseTip.y);
-      const mouthOpen = faceH > 0 ? (lowerLip.y - upperLip.y) / faceH : 0;
-      const isOpen = mouthOpen > MOUTH_OPEN_THRESHOLD;
-
-      if (isOpen && !mouthWasOpen) {
-        const mouthCX = (fx(upperLip) + fx(lowerLip)) / 2;
-        // Spawn below the chin so it doesn't cover the face
-        const chinY = fy(chin) + H * 0.04;
-        magicWords.push({
-          x: W / 2,
-          y: chinY,
-          spawnT: now,
-        });
-      }
-      mouthWasOpen = isOpen;
-
-      // ── Draw mouth landmark dots on uiCanvas (only when mouth is open) ──
-      if (isOpen) {
-        const MOUTH_OUTER = [
-          61, 185, 40, 39, 37, 0, 267, 269, 270, 409, 291, 375, 321, 405, 314,
-          17, 84, 181, 91, 146,
-        ];
-        const MOUTH_INNER = [
-          78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 324, 318, 402, 317,
-          14, 87, 178, 88, 95,
-        ];
-
-        uiCtx.save();
-        uiCtx.strokeStyle = "rgba(255,217,61,0.6)";
-        uiCtx.lineWidth = 1.2;
-        uiCtx.beginPath();
-        MOUTH_OUTER.forEach((idx, i) => {
-          const p = fl[idx];
-          if (i === 0) uiCtx.moveTo(fx(p), fy(p));
-          else uiCtx.lineTo(fx(p), fy(p));
-        });
-        uiCtx.closePath();
-        uiCtx.stroke();
-
-        uiCtx.beginPath();
-        MOUTH_INNER.forEach((idx, i) => {
-          const p = fl[idx];
-          if (i === 0) uiCtx.moveTo(fx(p), fy(p));
-          else uiCtx.lineTo(fx(p), fy(p));
-        });
-        uiCtx.closePath();
-        uiCtx.stroke();
-        uiCtx.restore();
-
-        [...MOUTH_OUTER, ...MOUTH_INNER].forEach((idx) => {
-          const p = fl[idx];
-          uiCtx.save();
-          uiCtx.beginPath();
-          uiCtx.arc(fx(p), fy(p), 3.5, 0, Math.PI * 2);
-          uiCtx.fillStyle = "#ffd93d";
-          uiCtx.shadowColor = "#ffd93d";
-          uiCtx.shadowBlur = 6;
-          uiCtx.fill();
-          uiCtx.restore();
-        });
-      }
-
-      // ── Spongebob face overlay ──
-      drawSpongeFace(fl, fx, fy, isOpen);
-    } else {
-      mouthWasOpen = false;
     }
   }
 
