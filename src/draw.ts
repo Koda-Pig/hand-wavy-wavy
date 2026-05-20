@@ -15,8 +15,6 @@ export function drawSkeleton(
   width: number,
   height: number,
 ): void {
-  ctx.clearRect(0, 0, width, height);
-
   for (let i = 0; i < slots.length; i++) {
     const hand = slots[i];
     if (!hand) continue;

@@ -1,4 +1,5 @@
 import type { HandLandmarker, HandLandmarkerResult } from "@mediapipe/tasks-vision";
+import type { CanvasLayout } from "./canvasLayout";
 import { drawSkeleton } from "./draw";
 import { GRACE_FRAMES, type HandSlot } from "./landmarks";
 
@@ -6,6 +7,7 @@ export function startLoop(
   handLandmarker: HandLandmarker,
   video: HTMLVideoElement,
   canvas: HTMLCanvasElement,
+  getLayout: () => CanvasLayout | null,
 ): void {
   const overlayCtx = canvas.getContext("2d");
   if (!overlayCtx) throw new Error("Could not get 2d canvas context");
@@ -60,11 +62,17 @@ export function startLoop(
       updateGraceState(results);
     }
 
-    const w = video.videoWidth;
-    const h = video.videoHeight;
-    if (w > 0 && h > 0) {
-      drawSkeleton(ctx, getDisplaySlots(), w, h);
+    const layout = getLayout();
+    if (!layout) {
+      requestAnimationFrame(loop);
+      return;
     }
+
+    const { camW, camH, scale, offsetX, offsetY, dpr } = layout;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.setTransform(scale * dpr, 0, 0, scale * dpr, offsetX * dpr, offsetY * dpr);
+    drawSkeleton(ctx, getDisplaySlots(), camW, camH);
 
     requestAnimationFrame(loop);
   }

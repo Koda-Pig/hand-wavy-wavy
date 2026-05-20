@@ -1,5 +1,6 @@
 import "./style.css";
 import { FilesetResolver, HandLandmarker } from "@mediapipe/tasks-vision";
+import { bindCanvasLayout } from "./canvasLayout";
 import { startLoop } from "./loop";
 
 const MODEL_URL =
@@ -11,6 +12,7 @@ const WASM_CDN =
 const statusEl = document.querySelector<HTMLParagraphElement>("#status");
 const videoEl = document.querySelector<HTMLVideoElement>("#webcam");
 const canvasEl = document.querySelector<HTMLCanvasElement>("#overlay");
+const stageEl = document.querySelector<HTMLElement>(".stage");
 
 function setStatus(message: string, hide = false): void {
   if (!statusEl) return;
@@ -67,7 +69,7 @@ async function createHandLandmarker(): Promise<HandLandmarker> {
   throw new Error("Failed to create HandLandmarker");
 }
 
-async function startCamera(video: HTMLVideoElement, canvas: HTMLCanvasElement): Promise<void> {
+async function startCamera(video: HTMLVideoElement): Promise<void> {
   const stream = await navigator.mediaDevices.getUserMedia({
     video: { width: 640, height: 480, facingMode: "user" },
   });
@@ -84,25 +86,24 @@ async function startCamera(video: HTMLVideoElement, canvas: HTMLCanvasElement): 
   });
 
   await video.play();
-
-  canvas.width = video.videoWidth;
-  canvas.height = video.videoHeight;
 }
 
 async function main(): Promise<void> {
-  if (!statusEl || !videoEl || !canvasEl) {
+  if (!statusEl || !videoEl || !canvasEl || !stageEl) {
     throw new Error("Missing required DOM elements");
   }
 
   try {
     setStatus("Starting camera…");
-    await startCamera(videoEl, canvasEl);
+    await startCamera(videoEl);
+
+    const getLayout = bindCanvasLayout(canvasEl, videoEl, stageEl);
 
     setStatus("Loading hand tracker…");
     const handLandmarker = await createHandLandmarker();
 
     setStatus("Ready", true);
-    startLoop(handLandmarker, videoEl, canvasEl);
+    startLoop(handLandmarker, videoEl, canvasEl, getLayout);
   } catch (error) {
     if (error instanceof DOMException && error.name === "NotAllowedError") {
       showError("Camera permission denied. Allow camera access and reload.");

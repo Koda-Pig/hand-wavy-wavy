@@ -49,8 +49,5 @@ body {
 
 #overlay {
     position: absolute;
-    max-width: 100vw;
-    max-height: 100vh;
-    width: auto;
-    height: auto;
+    inset: 0;
 }
