@@ -143,37 +143,3 @@ canvas {
     color: #888;
     font-size: 0.68rem;
 }
-
-.demo-footer {
-    width: 100%;
-    max-width: 940px;
-    padding: 16px 24px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 16px;
-    font-family: "Space Mono", monospace;
-    font-size: 0.7rem;
-    color: #999;
-}
-
-.demo-footer a {
-    color: #666;
-    text-decoration: none;
-    transition: color 0.2s;
-}
-
-.demo-footer a:hover {
-    color: #333;
-}
-
-.demo-footer .footer-sep {
-    color: #ddd;
-}
-
-.demo-footer .site-logo {
-    width: 16px;
-    height: 16px;
-    vertical-align: middle;
-    margin-right: 4px;
-}
