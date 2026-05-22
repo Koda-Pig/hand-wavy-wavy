@@ -103,7 +103,14 @@ async function main(): Promise<void> {
     const handLandmarker = await createHandLandmarker();
 
     setStatus("Ready", true);
-    startLoop(handLandmarker, videoEl, canvasEl, getLayout);
+    const loop = startLoop(handLandmarker, videoEl, canvasEl, getLayout);
+
+    window.addEventListener("keydown", (event) => {
+      if (event.defaultPrevented) return;
+      if (event.key === "s" || event.key === "S") {
+        loop.toggleSkeleton();
+      }
+    });
   } catch (error) {
     if (error instanceof DOMException && error.name === "NotAllowedError") {
       showError("Camera permission denied. Allow camera access and reload.");
