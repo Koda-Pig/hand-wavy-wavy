@@ -1,6 +1,6 @@
 # hand-wavy-wavy
 
-Browser finger tracker that drives canvas visualizations. MediaPipe Hand Landmarker reads a hidden webcam; ethereal effects follow your index fingertip(s). No backend, no gesture classification.
+Browser finger tracker that drives canvas visualizations. MediaPipe Hand Landmarker reads a hidden webcam; ethereal effects follow your fingertips. No backend, no gesture classification.
 
 **Live:** [hand-wavy-wavy.netlify.app](https://hand-wavy-wavy.netlify.app/)
 
@@ -36,3 +36,10 @@ Visual motion references live in [`visuals/`](visuals/) (explorations only; not 
 - TypeScript + Vite
 - [@mediapipe/tasks-vision](https://www.npmjs.com/package/@mediapipe/tasks-vision) `0.10.3`
 - WASM copied to `public/mediapipe-wasm/` on dev/build (CDN fallback)
+
+
+---
+
+fibrous must leave a trail and fade out
+
+the rings should animate as a 'grow in
