@@ -17,7 +17,7 @@ Living product doc for [hand-wavy-wavy](https://hand-wavy-wavy.netlify.app/). Su
 | **Scope layering** | **Hybrid:** open palm → **global** Swirl field; index poses → **per-hand** Burst / stream |
 | **Palm → Swirl** | Open palm facing camera summons a full-screen Swirl (rings + smoke dots from `visuals/`) |
 | **Index still → Burst** | Index-only pose, fingertip **stationary** → radial smoke burst anchored at index tip (landmark `8`) |
-| **Index moving → stream** | Index-only pose, fingertip **moving** → flowing ribbon/trail from tip; **must leave a trail and fade out** (not column Fibrous) |
+| **Index moving → stream** | Index-only pose, fingertip **moving** → flowing ribbon/trail from tip; **must leave a trail and fade out** |
 | **Index motion gate** | EMA-smoothed tip velocity + **~200 ms sustained hold** before switching Burst ↔ stream |
 | **Swirl spawn rule** | Palm **still** → generate rings/dots (populate screen over time) |
 | **Swirl displacement rule** | Palm **moving** → **stop spawning**; displace existing particles along palm motion so they float/drift away (curl-assisted) |
