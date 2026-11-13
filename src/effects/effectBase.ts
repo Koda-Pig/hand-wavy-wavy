@@ -24,9 +24,19 @@ export function rand(a: number, b: number): number {
   return a + Math.random() * (b - a);
 }
 
+/** Cached `rgba(r,g,b,` prefix per color tuple — avoids re-formatting the channels per particle. */
+const rgbaPrefixCache = new WeakMap<RGB, string>();
+
 export function rgba(c: RGB, a: number): string {
-  return `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a})`;
+  let prefix = rgbaPrefixCache.get(c);
+  if (prefix === undefined) {
+    prefix = `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},`;
+    rgbaPrefixCache.set(c, prefix);
+  }
+  return `${prefix}${a})`;
 }
+
+export const WHITE: RGB = [255, 255, 255];
 
 function n2(x: number, y: number, t: number): number {
   return (
@@ -36,7 +46,12 @@ function n2(x: number, y: number, t: number): number {
   );
 }
 
+/**
+ * Curl-noise force at (x, y). Writes into `out` (reused by callers) instead of
+ * allocating a tuple — this runs once per particle per frame.
+ */
 export function curl(
+  out: [number, number],
   x: number,
   y: number,
   t: number,
@@ -45,8 +60,25 @@ export function curl(
   const e = 1.2;
   const a = n2(x, y + e, t) - n2(x, y - e, t);
   const b = n2(x + e, y, t) - n2(x - e, y, t);
-  return [a * scale, -b * scale];
+  out[0] = a * scale;
+  out[1] = -b * scale;
+  return out;
 }
+
+/**
+ * Remove items for which `keep` is false, preserving order, without allocating
+ * a new array (replacement for `arr = arr.filter(...)` in per-frame code).
+ */
+export function compactInPlace<T>(arr: T[], keep: (item: T) => boolean): void {
+  let w = 0;
+  for (let r = 0; r < arr.length; r++) {
+    const item = arr[r];
+    if (keep(item)) arr[w++] = item;
+  }
+  arr.length = w;
+}
+
+const fadeStyleCache = new Map<number, string>();
 
 export function applyFade(
   ctx: CanvasRenderingContext2D,
@@ -54,12 +86,21 @@ export function applyFade(
   h: number,
   alpha: number,
 ): void {
+  let style = fadeStyleCache.get(alpha);
+  if (style === undefined) {
+    style = `rgba(0,0,0,${alpha})`;
+    fadeStyleCache.set(alpha, style);
+  }
   ctx.globalCompositeOperation = "source-over";
-  ctx.fillStyle = `rgba(0,0,0,${alpha})`;
+  ctx.fillStyle = style;
   ctx.fillRect(0, 0, w, h);
   ctx.globalCompositeOperation = "lighter";
 }
 
+/**
+ * Glowing two-pass segment (tinted body + white core). The path is built once
+ * and stroked twice; callers set `lineCap = "round"` once per draw pass.
+ */
 export function trailSegment(
   ctx: CanvasRenderingContext2D,
   c: RGB,
@@ -77,18 +118,14 @@ export function trailSegment(
   if (dx * dx + dy * dy > maxJumpSq) return;
   ctx.shadowColor = rgba(c, a);
   ctx.shadowBlur = glow;
+  ctx.beginPath();
+  ctx.moveTo(px, py);
+  ctx.lineTo(x, y);
   ctx.strokeStyle = rgba(c, a * 0.55);
   ctx.lineWidth = width;
-  ctx.lineCap = "round";
-  ctx.beginPath();
-  ctx.moveTo(px, py);
-  ctx.lineTo(x, y);
   ctx.stroke();
-  ctx.strokeStyle = `rgba(255,255,255,${a * 0.55})`;
+  ctx.strokeStyle = rgba(WHITE, a * 0.55);
   ctx.lineWidth = width * 0.35;
-  ctx.beginPath();
-  ctx.moveTo(px, py);
-  ctx.lineTo(x, y);
   ctx.stroke();
 }
 

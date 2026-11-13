@@ -26,8 +26,25 @@ export function bindCanvasLayout(
     const offsetX = (viewW - camW * scale) / 2;
     const offsetY = (viewH - camH * scale) / 2;
 
-    canvas.width = Math.round(viewW * dpr);
-    canvas.height = Math.round(viewH * dpr);
+    const pixelW = Math.round(viewW * dpr);
+    const pixelH = Math.round(viewH * dpr);
+
+    // ResizeObserver and window "resize" both fire for the same change.
+    // Re-assigning canvas.width/height reallocates the backing store and wipes
+    // the trails even when nothing changed, so bail out on a no-op update.
+    if (
+      layout &&
+      layout.camW === camW &&
+      layout.camH === camH &&
+      layout.dpr === dpr &&
+      canvas.width === pixelW &&
+      canvas.height === pixelH
+    ) {
+      return;
+    }
+
+    canvas.width = pixelW;
+    canvas.height = pixelH;
     canvas.style.width = `${viewW}px`;
     canvas.style.height = `${viewH}px`;
 
@@ -36,6 +53,8 @@ export function bindCanvasLayout(
 
   const observer = new ResizeObserver(update);
   observer.observe(stage);
+  // Kept for devicePixelRatio changes (browser zoom / moving between monitors),
+  // which don't resize the stage in CSS pixels.
   window.addEventListener("resize", update);
   update();
 

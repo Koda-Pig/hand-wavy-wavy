@@ -19,6 +19,7 @@ pnpm preview  # preview production build
 ## Docs
 
 - **[Implementation plan](docs/implementation-plan.md)** — product intent, architecture, locked decisions
+- **[Performance audit](docs/performance.md)** — known hot spots, what was fixed, what was left and why
 - **[Building hand gesture tracking](docs/building-hand-gesture-tracking.md)** — historical reference for gesture/effect patterns (not current product scope)
 - **[AGENTS.md](AGENTS.md)** — agent workflow for this repo
 

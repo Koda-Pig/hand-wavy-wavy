@@ -1,12 +1,17 @@
 import {
+  compactInPlace,
   curl,
   rand,
   resetShadow,
   rgba,
   TAU,
   trailSegment,
+  WHITE,
   type EffectOpts,
 } from "./effectBase";
+
+const force: [number, number] = [0, 0];
+const isAlive = (p: BurstParticle): boolean => p.life < p.ttl;
 
 type BurstParticle = {
   x: number;
@@ -47,9 +52,9 @@ export class BurstEffect {
     for (const p of this.particles) {
       p.px = p.x;
       p.py = p.y;
-      const [fx, fy] = curl(p.x, p.y, this.t * 0.35, 0.9);
-      p.vx = p.vx * 0.985 + fx * 0.15;
-      p.vy = p.vy * 0.985 + fy * 0.1;
+      curl(force, p.x, p.y, this.t * 0.35, 0.9);
+      p.vx = p.vx * 0.985 + force[0] * 0.15;
+      p.vy = p.vy * 0.985 + force[1] * 0.1;
       p.x += p.vx * s * 26;
       p.y += p.vy * s * 26;
       p.life += s;
@@ -57,11 +62,12 @@ export class BurstEffect {
     if (this.particles.length > 800) {
       this.particles.splice(0, this.particles.length - 800);
     }
-    this.particles = this.particles.filter((p) => p.life < p.ttl);
+    compactInPlace(this.particles, isAlive);
   }
 
   draw(ctx: CanvasRenderingContext2D, opts: EffectOpts): void {
     const c = opts.color;
+    ctx.lineCap = "round";
     for (const p of this.particles) {
       const u = p.life / p.ttl;
       const env = Math.sin(u * Math.PI);
@@ -80,7 +86,7 @@ export class BurstEffect {
       if (p.sparkle && env > 0.4) {
         ctx.shadowColor = rgba(c, a);
         ctx.shadowBlur = opts.glow * 0.8;
-        ctx.fillStyle = `rgba(255,255,255,${a * 1.4})`;
+        ctx.fillStyle = rgba(WHITE, a * 1.4);
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.width * 0.4, 0, TAU);
         ctx.fill();

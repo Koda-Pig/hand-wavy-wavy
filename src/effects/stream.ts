@@ -1,10 +1,14 @@
 import {
+  compactInPlace,
   curl,
   rand,
   resetShadow,
   trailSegment,
   type EffectOpts,
 } from "./effectBase";
+
+const force: [number, number] = [0, 0];
+const isAlive = (p: StreamParticle): boolean => p.life < p.ttl;
 
 type StreamParticle = {
   x: number;
@@ -53,9 +57,9 @@ export class StreamEffect {
     for (const p of this.particles) {
       p.px = p.x;
       p.py = p.y;
-      const [fx, fy] = curl(p.x, p.y, this.t * 0.4, 1.0);
-      p.vx = p.vx * 0.94 + fx * 0.35;
-      p.vy = p.vy * 0.94 + fy * 0.35;
+      curl(force, p.x, p.y, this.t * 0.4, 1.0);
+      p.vx = p.vx * 0.94 + force[0] * 0.35;
+      p.vy = p.vy * 0.94 + force[1] * 0.35;
       p.x += p.vx * s * 20;
       p.y += p.vy * s * 20;
       p.life += s;
@@ -63,11 +67,12 @@ export class StreamEffect {
     if (this.particles.length > 900) {
       this.particles.splice(0, this.particles.length - 900);
     }
-    this.particles = this.particles.filter((p) => p.life < p.ttl);
+    compactInPlace(this.particles, isAlive);
   }
 
   draw(ctx: CanvasRenderingContext2D, opts: EffectOpts): void {
     const c = opts.color;
+    ctx.lineCap = "round";
     for (const p of this.particles) {
       const u = p.life / p.ttl;
       const env = Math.sin(u * Math.PI);
