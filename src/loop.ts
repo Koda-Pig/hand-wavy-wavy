@@ -7,7 +7,7 @@ import { drawSkeleton } from "./draw";
 import { GRACE_FRAMES, type HandSlot } from "./landmarks";
 import { createPoseRouter } from "./poses";
 import { BurstEffect } from "./effects/burst";
-import { StreamEffect } from "./effects/stream";
+import { StreamEffect, type StreamAnchor } from "./effects/stream";
 import { SwirlEffect } from "./effects/swirl";
 import {
   applyFade,
@@ -25,6 +25,20 @@ const HAND_TINTS: readonly RGB[] = [
 
 const SWIRL_TINT: RGB = [180, 180, 240];
 
+/** Effect options are constant, so build them once instead of spreading per frame. */
+const SWIRL_OPTS: EffectOpts = { ...DEFAULT_OPTS, color: SWIRL_TINT };
+const HAND_OPTS: readonly EffectOpts[] = HAND_TINTS.map((color) => ({
+  ...DEFAULT_OPTS,
+  color,
+}));
+
+/**
+ * Once every effect is empty, keep fading for this many frames so existing
+ * trails finish decaying (0.77^90 ≈ 6e-11 — far below one 8-bit level), then
+ * stop repainting a canvas that can no longer change.
+ */
+const IDLE_FADE_FRAMES = 90;
+
 export type LoopHandle = {
   setSkeletonVisible(value: boolean): void;
   toggleSkeleton(): void;
@@ -36,12 +50,16 @@ export function startLoop(
   canvas: HTMLCanvasElement,
   getLayout: () => CanvasLayout | null,
 ): LoopHandle {
-  const overlayCtx = canvas.getContext("2d");
+  // alpha: false — the canvas is fully covered by the black fade every frame,
+  // so it never needs to be blended with the page behind it.
+  const overlayCtx = canvas.getContext("2d", { alpha: false });
   if (!overlayCtx) throw new Error("Could not get 2d canvas context");
   const ctx: CanvasRenderingContext2D = overlayCtx;
 
   let lastDetectTimestamp = -1;
+  let lastVideoTime = -1;
   let lastFrameMs = -1;
+  let idleFrames = 0;
   let skeletonVisible = false;
 
   const handMissed = [0, 0];
@@ -58,17 +76,39 @@ export function startLoop(
   const bursts: BurstEffect[] = [new BurstEffect(), new BurstEffect()];
   const streams: StreamEffect[] = [new StreamEffect(), new StreamEffect()];
   let swirl: SwirlEffect | null = null;
+  const swirlInput = {
+    active: false,
+    motion: "still" as "still" | "moving",
+    vx: 0,
+    vy: 0,
+  };
+  const burstAnchors = [
+    { x: 0, y: 0 },
+    { x: 0, y: 0 },
+  ];
+  const streamAnchors: StreamAnchor[] = [
+    { x: 0, y: 0, vx: 0, vy: 0 },
+    { x: 0, y: 0, vx: 0, vy: 0 },
+  ];
+
+  // A resize clears the canvas (setting canvas.width), so the idle skip must
+  // be cancelled to repaint the background.
+  let lastLayout: CanvasLayout | null = null;
+  function layoutChanged(layout: CanvasLayout): boolean {
+    const changed = layout !== lastLayout;
+    lastLayout = layout;
+    return changed;
+  }
 
   function updateGraceState(results: HandLandmarkerResult): void {
-    const present = new Set<number>();
-    for (let i = 0; i < results.landmarks.length; i++) {
-      present.add(i);
-      handMissed[i] = 0;
-      graceLandmarks[i] = results.landmarks[i];
-      graceHandednesses[i] = results.handednesses[i] ?? null;
-    }
+    const detected = results.landmarks.length;
     for (let i = 0; i < 2; i++) {
-      if (present.has(i)) continue;
+      if (i < detected) {
+        handMissed[i] = 0;
+        graceLandmarks[i] = results.landmarks[i];
+        graceHandednesses[i] = results.handednesses[i] ?? null;
+        continue;
+      }
       handMissed[i]++;
       if (handMissed[i] > GRACE_FRAMES) {
         graceLandmarks[i] = null;
@@ -77,20 +117,36 @@ export function startLoop(
     }
   }
 
+  // Reused every frame instead of allocating a fresh array + slot objects.
+  const slotStore: HandSlot[] = [{ landmarks: [] }, { landmarks: [] }];
+  const displaySlots: (HandSlot | null)[] = [null, null];
+
   function getDisplaySlots(): (HandSlot | null)[] {
-    return [0, 1].map((i) => {
+    for (let i = 0; i < 2; i++) {
       const landmarks = graceLandmarks[i];
-      if (!landmarks) return null;
-      return {
-        landmarks,
-        handedness: graceHandednesses[i] ?? undefined,
-      };
-    });
+      if (!landmarks) {
+        displaySlots[i] = null;
+        continue;
+      }
+      const slot = slotStore[i];
+      slot.landmarks = landmarks;
+      slot.handedness = graceHandednesses[i] ?? undefined;
+      displaySlots[i] = slot;
+    }
+    return displaySlots;
   }
 
   function loop(timestamp: number): void {
-    if (timestamp !== lastDetectTimestamp) {
+    // Only run inference when the camera has delivered a new frame. rAF runs
+    // at display rate (60–144 Hz) but the webcam is typically 30 fps, so the
+    // old per-rAF detect re-ran the model on duplicate frames 2–5× over.
+    if (
+      timestamp !== lastDetectTimestamp &&
+      video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
+      video.currentTime !== lastVideoTime
+    ) {
       lastDetectTimestamp = timestamp;
+      lastVideoTime = video.currentTime;
       const results = handLandmarker.detectForVideo(video, timestamp);
       updateGraceState(results);
     }
@@ -116,7 +172,23 @@ export function startLoop(
     const slots = getDisplaySlots();
     const poseFrame = poseRouter.update(slots, dt, camW, camH);
 
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    const anyHand = slots[0] !== null || slots[1] !== null;
+    const anyParticles =
+      swirl.hasParticles() ||
+      bursts[0].hasParticles() ||
+      bursts[1].hasParticles() ||
+      streams[0].hasParticles() ||
+      streams[1].hasParticles();
+    if (anyHand || anyParticles || layoutChanged(layout)) {
+      idleFrames = 0;
+    } else if (idleFrames >= IDLE_FADE_FRAMES) {
+      // Nothing alive, nothing to draw, canvas fully faded: skip the frame.
+      requestAnimationFrame(loop);
+      return;
+    } else {
+      idleFrames++;
+    }
+
     ctx.setTransform(scale * dpr, 0, 0, scale * dpr, offsetX * dpr, offsetY * dpr);
 
     // Shared partial-frame fade — establishes the persistence model and
@@ -124,39 +196,38 @@ export function startLoop(
     applyFade(ctx, camW, camH, DEFAULT_OPTS.trail);
 
     // 1) Global Swirl (palm gate).
-    const swirlOpts: EffectOpts = { ...DEFAULT_OPTS, color: SWIRL_TINT };
-    swirl.step(
-      dt,
-      {
-        active: poseFrame.swirl.active,
-        motion: poseFrame.swirl.palmMotion,
-        vx: poseFrame.swirl.palmVx,
-        vy: poseFrame.swirl.palmVy,
-      },
-      swirlOpts,
-    );
-    swirl.draw(ctx, swirlOpts);
+    swirlInput.active = poseFrame.swirl.active;
+    swirlInput.motion = poseFrame.swirl.palmMotion;
+    swirlInput.vx = poseFrame.swirl.palmVx;
+    swirlInput.vy = poseFrame.swirl.palmVy;
+    swirl.step(dt, swirlInput, SWIRL_OPTS);
+    swirl.draw(ctx, SWIRL_OPTS);
 
     // 2) Per-hand Burst / Stream routed by pose.
     for (let i = 0; i < 2; i++) {
       const pose = poseFrame.hands[i];
-      const tint = HAND_TINTS[i] ?? HAND_TINTS[0];
-      const handOpts: EffectOpts = { ...DEFAULT_OPTS, color: tint };
+      const handOpts = HAND_OPTS[i] ?? HAND_OPTS[0];
 
       const burst = bursts[i];
       const stream = streams[i];
 
-      const burstAnchor =
-        pose && pose.shape === "index" && pose.indexMotion === "still"
-          ? { x: pose.tipX, y: pose.tipY }
-          : null;
+      let burstAnchor: { x: number; y: number } | null = null;
+      if (pose && pose.shape === "index" && pose.indexMotion === "still") {
+        burstAnchor = burstAnchors[i];
+        burstAnchor.x = pose.tipX;
+        burstAnchor.y = pose.tipY;
+      }
       burst.step(dt, burstAnchor, handOpts);
       burst.draw(ctx, handOpts);
 
-      const streamAnchor =
-        pose && pose.shape === "index" && pose.indexMotion === "moving"
-          ? { x: pose.tipX, y: pose.tipY, vx: pose.tipVx, vy: pose.tipVy }
-          : null;
+      let streamAnchor: StreamAnchor | null = null;
+      if (pose && pose.shape === "index" && pose.indexMotion === "moving") {
+        streamAnchor = streamAnchors[i];
+        streamAnchor.x = pose.tipX;
+        streamAnchor.y = pose.tipY;
+        streamAnchor.vx = pose.tipVx;
+        streamAnchor.vy = pose.tipVy;
+      }
       stream.step(dt, streamAnchor, handOpts);
       stream.draw(ctx, handOpts);
     }

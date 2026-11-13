@@ -1,9 +1,11 @@
 import {
+  compactInPlace,
   curl,
   rand,
   resetShadow,
   rgba,
   TAU,
+  WHITE,
   type EffectOpts,
 } from "./effectBase";
 
@@ -33,6 +35,25 @@ type Dot = {
 /** Per-frame spawn budget while populating (rings, dots). */
 const RING_SPAWN_PER_SEC = 6;
 const DOT_SPAWN_PER_SEC = 40;
+
+/** Vertices per ring outline. */
+const RING_SEGMENTS = 26;
+/** Precomputed cos/sin and 2θ/3θ for each ring vertex (θ fixed per vertex). */
+const RING_COS = new Float64Array(RING_SEGMENTS + 1);
+const RING_SIN = new Float64Array(RING_SEGMENTS + 1);
+const RING_A2 = new Float64Array(RING_SEGMENTS + 1);
+const RING_A3 = new Float64Array(RING_SEGMENTS + 1);
+for (let i = 0; i <= RING_SEGMENTS; i++) {
+  const a2 = (i / RING_SEGMENTS) * TAU;
+  RING_COS[i] = Math.cos(a2);
+  RING_SIN[i] = Math.sin(a2);
+  RING_A2[i] = a2 * 2;
+  RING_A3[i] = a2 * 3;
+}
+
+const force: [number, number] = [0, 0];
+const ringAlive = (r: Ring): boolean => r.life < r.ttl;
+const dotAlive = (p: Dot): boolean => p.life < p.ttl;
 
 /**
  * Global Swirl field. Open palm + palm-still populates rings + smoke dots up to
@@ -94,76 +115,75 @@ export class SwirlEffect {
     const dispY = palm.active && palm.motion === "moving" ? palm.vy * displaceScale : 0;
 
     for (const r of this.rings) {
-      const [fx, fy] = curl(r.x, r.y, this.t * 0.22, 0.5);
-      r.x += (fx * s * 8) + dispX * s * 60;
-      r.y += (fy * s * 8) + dispY * s * 60;
+      curl(force, r.x, r.y, this.t * 0.22, 0.5);
+      r.x += (force[0] * s * 8) + dispX * s * 60;
+      r.y += (force[1] * s * 8) + dispY * s * 60;
       r.rot += r.vrot * s;
       r.life += s;
     }
-    this.rings = this.rings.filter((r) => r.life < r.ttl);
+    compactInPlace(this.rings, ringAlive);
 
     for (const p of this.dots) {
       p.px = p.x;
       p.py = p.y;
-      const [fx, fy] = curl(p.x, p.y, this.t * 0.3, 1.1);
-      p.x += (fx * s * 28) + dispX * s * 60;
-      p.y += (fy * s * 28) + dispY * s * 60;
+      curl(force, p.x, p.y, this.t * 0.3, 1.1);
+      p.x += (force[0] * s * 28) + dispX * s * 60;
+      p.y += (force[1] * s * 28) + dispY * s * 60;
       p.life += s;
     }
-    this.dots = this.dots.filter((p) => p.life < p.ttl);
+    compactInPlace(this.dots, dotAlive);
   }
 
   draw(ctx: CanvasRenderingContext2D, opts: EffectOpts): void {
     const c = opts.color;
+    // Rings use translate/rotate; restore this matrix directly instead of the
+    // much heavier save()/restore() (which snapshots every context property).
+    const baseTransform = ctx.getTransform();
 
     // smoke dots first (under rings)
+    const dotBlur = opts.glow * 0.9;
+    ctx.lineCap = "round";
     for (const p of this.dots) {
-      if (p.px == null) continue;
-      const env = Math.sin((p.life / p.ttl) * Math.PI);
-      const a = env * 0.55 * opts.opacity;
       const dx = p.x - p.px;
       const dy = p.y - p.py;
       if (dx * dx + dy * dy > 4000) continue;
+      const env = Math.sin((p.life / p.ttl) * Math.PI);
+      const a = env * 0.55 * opts.opacity;
+      const lw = p.width * (0.7 + env * 0.5);
       ctx.shadowColor = rgba(c, a);
-      ctx.shadowBlur = opts.glow * 0.9;
+      ctx.shadowBlur = dotBlur;
+      ctx.beginPath();
+      ctx.moveTo(p.px, p.py);
+      ctx.lineTo(p.x, p.y);
       ctx.strokeStyle = rgba(c, a * 0.55);
-      ctx.lineWidth = p.width * (0.7 + env * 0.5);
-      ctx.lineCap = "round";
-      ctx.beginPath();
-      ctx.moveTo(p.px, p.py);
-      ctx.lineTo(p.x, p.y);
+      ctx.lineWidth = lw;
       ctx.stroke();
-      ctx.strokeStyle = `rgba(255,255,255,${a * 0.55})`;
-      ctx.lineWidth = p.width * 0.35 * (0.7 + env * 0.5);
-      ctx.beginPath();
-      ctx.moveTo(p.px, p.py);
-      ctx.lineTo(p.x, p.y);
+      ctx.strokeStyle = rgba(WHITE, a * 0.55);
+      ctx.lineWidth = lw * 0.35;
       ctx.stroke();
     }
 
-    // breathing rings on top
+    // breathing rings on top — outline traced once, stroked twice
+    ctx.shadowBlur = opts.glow;
     for (const r of this.rings) {
       const env = Math.sin((r.life / r.ttl) * Math.PI);
       const a = env * opts.opacity;
       const br = r.r * (0.85 + Math.sin(this.t * r.bfreq + r.bphase) * 0.18);
       ctx.shadowColor = rgba(c, a);
-      ctx.shadowBlur = opts.glow;
-      ctx.save();
+      ctx.setTransform(baseTransform);
       ctx.translate(r.x, r.y);
       ctx.rotate(r.rot);
+      this.tracePath(ctx, br, br * 0.88, r.wobP);
 
       ctx.strokeStyle = rgba(c, a * 0.45);
       ctx.lineWidth = 1.8;
-      this.tracePath(ctx, br, br * 0.88, r.wobP);
       ctx.stroke();
 
-      ctx.strokeStyle = `rgba(255,255,255,${a * 0.9})`;
+      ctx.strokeStyle = rgba(WHITE, a * 0.9);
       ctx.lineWidth = 0.75;
-      this.tracePath(ctx, br, br * 0.88, r.wobP);
       ctx.stroke();
-
-      ctx.restore();
     }
+    ctx.setTransform(baseTransform);
     resetShadow(ctx);
   }
 
@@ -213,15 +233,15 @@ export class SwirlEffect {
     wobP: number,
   ): void {
     ctx.beginPath();
-    const N = 26;
-    for (let i = 0; i <= N; i++) {
-      const a2 = (i / N) * TAU;
+    const t1 = wobP + this.t * 0.7;
+    const t2 = this.t * 0.45;
+    for (let i = 0; i <= RING_SEGMENTS; i++) {
       const w =
         1 +
-        Math.sin(a2 * 2 + wobP + this.t * 0.7) * 0.08 +
-        Math.sin(a2 * 3 + this.t * 0.45) * 0.06;
-      const px = Math.cos(a2) * rx * w;
-      const py = Math.sin(a2) * ry * w;
+        Math.sin(RING_A2[i] + t1) * 0.08 +
+        Math.sin(RING_A3[i] + t2) * 0.06;
+      const px = RING_COS[i] * rx * w;
+      const py = RING_SIN[i] * ry * w;
       if (i === 0) ctx.moveTo(px, py);
       else ctx.lineTo(px, py);
     }

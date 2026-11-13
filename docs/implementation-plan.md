@@ -220,7 +220,7 @@ Port **09 · Swirl** from [`visuals/gestures.jsx`](../visuals/gestures.jsx).
 
 ### Loop contract
 
-Detection unchanged from v1. Pose classify + effect `step`/`draw` run every frame; `detectForVideo` only when `timestamp !== lastTimestamp`.
+Pose classify + effect `step`/`draw` run every frame; `detectForVideo` only when the camera has delivered a new frame (`video.currentTime` advanced), so the grace period counts camera frames. Once no hands and no particles remain, drawing stops after a short fade-out until a hand returns. See [performance.md](performance.md).
 
 ### Suggested implementation order
 
